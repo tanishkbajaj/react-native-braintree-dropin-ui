@@ -14,7 +14,7 @@
 
 #import "BraintreeApplePay.h"
 
-@interface RNBraintreeDropIn : NSObject <RCTBridgeModule>
+@interface RNBraintreeDropIn : NSObject <RCTBridgeModule,BTAppSwitchDelegate,BTViewControllerPresentingDelegate>
 
 @property (nonatomic, strong) UIViewController *_Nonnull reactRoot;
 

@@ -11,6 +11,14 @@
 {
     return dispatch_get_main_queue();
 }
+
+/*
++ (BOOL)requiresMainQueueSetup
+{
+    return NO;
+}
+ */
+
 RCT_EXPORT_MODULE(RNBraintreeDropIn)
 
 
@@ -20,6 +28,7 @@ RCT_EXPORT_MODULE(RNBraintreeDropIn)
 
 RCT_EXPORT_METHOD(payPalPayment:(NSDictionary*)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
+    //https://developers.braintreepayments.com/guides/paypal/client-side/ios/v4
     
     NSString* clientToken = options[@"clientToken"];
     if (!clientToken) {
@@ -46,31 +55,18 @@ RCT_EXPORT_METHOD(payPalPayment:(NSDictionary*)options resolver:(RCTPromiseResol
     
     
     // One time payment if an amount is present
-    if (payPalRequest.amount) {
+  
+    [driver requestOneTimePayment:payPalRequest completion:^(BTPayPalAccountNonce * _Nullable payPalAccount, NSError * _Nullable error) {
         
-        [driver requestOneTimePayment:payPalRequest completion:^(BTPayPalAccountNonce * _Nullable payPalAccount, NSError * _Nullable error) {
+        if (payPalAccount != nil) {
             
-            if (payPalAccount != nil) {
-                
-                [[self class] resolveBTPayment:payPalAccount resolver:resolve];
-            }
-            else{
-                reject(error.localizedDescription, error.localizedDescription, error);
-            }
-        }];
-    } else {
-        
-        [driver requestBillingAgreement:payPalRequest completion:^(BTPayPalAccountNonce * _Nullable payPalAccount, NSError * _Nullable error) {
-            
-            if (payPalAccount != nil && error != nil) {
-                
-                [[self class] resolveBTPayment:payPalAccount resolver:resolve];
-            }else
-            {
-                reject(error.localizedDescription, error.localizedDescription, error);
-            }
-        }];
-    }
+            [[self class] resolveBTPayment:payPalAccount resolver:resolve];
+        }
+        else{
+            reject(error.localizedDescription, error.localizedDescription, error);
+        }
+    }];
+    
 }
 
 
@@ -105,9 +101,24 @@ RCT_EXPORT_METHOD(payPalPayment:(NSDictionary*)options resolver:(RCTPromiseResol
     return [[UIApplication sharedApplication] canOpenURL:[BTVenmoAppSwitchRequestURL baseAppSwitchURL]] && isAtLeastIos9;
 }
 
-
+//Check venmo installed with callback
 RCT_EXPORT_METHOD(checkIfVenmoInstalled:(RCTResponseSenderBlock)callback){
   callback(@[[NSNumber numberWithBool:[self isiOSAppAvailableForAppSwitch]]]);
+}
+
+// returns callback: might use later to show venmo present or not
+// - (NSDictionary *)constantsToExport {
+//     return @{
+//         @"isVenmoSupported": [NSNumber numberWithBool:[self isiOSAppAvailableForAppSwitch]]
+//     };
+ 
+// }
+
+RCT_REMAP_METHOD(checkIfVenmoInstalled, venmoInformation:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
+    NSMutableDictionary* jsResult = [NSMutableDictionary new];
+    jsResult [@"venmoInstalled"] = [NSNumber numberWithBool:[self isiOSAppAvailableForAppSwitch]];
+    resolve(jsResult);
 }
 
 RCT_EXPORT_METHOD(venmoPayment:(NSDictionary*)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
@@ -144,8 +155,15 @@ RCT_EXPORT_METHOD(venmoPayment:(NSDictionary*)options resolver:(RCTPromiseResolv
         return;
     }*/
     
+    // To vault the Venmo account, change this to true and use a Braintree client token with a customer ID
+
+    BOOL vault = NO;
     
-    [venmoDriver authorizeAccountAndVault:false completion:^(BTVenmoAccountNonce * _Nullable venmoAccount, NSError * _Nullable error) {
+    if([options[@"vault"] boolValue]){
+        vault = YES;
+    }
+
+    [venmoDriver authorizeAccountAndVault:vault completion:^(BTVenmoAccountNonce * _Nullable venmoAccount, NSError * _Nullable error) {
         
         if (venmoAccount != nil ) {
             [[self class] bTVenmoAccountNonce:venmoAccount resolver:resolve];
@@ -205,10 +223,12 @@ RCT_EXPORT_METHOD(venmoPayment:(NSDictionary*)options resolver:(RCTPromiseResolv
 
 - (void)paymentDriver:(__unused id)driver requestsPresentationOfViewController:(UIViewController *)viewController {
     
+    NSLog(@"show loading here--------");
 }
 
 - (void)paymentDriver:(__unused id)driver requestsDismissalOfViewController:(__unused UIViewController *)viewController {
     
+    NSLog(@"stop loading--------");
 }
 
 #pragma mark -

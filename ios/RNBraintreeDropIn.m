@@ -26,47 +26,76 @@ RCT_EXPORT_MODULE(RNBraintreeDropIn)
 #pragma mark Paypal Payment
 #pragma mark -
 
-RCT_EXPORT_METHOD(payPalPayment:(NSDictionary*)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXPORT_METHOD(
+    requestBillingAgreement:(NSString *)clientToken
+    options:(NSDictionary*)options
+    resolve:(RCTPromiseResolveBlock)resolve
+    reject:(RCTPromiseRejectBlock)reject)
 {
-    //https://developers.braintreepayments.com/guides/paypal/client-side/ios/v4
-    
-    NSString* clientToken = options[@"clientToken"];
-    if (!clientToken) {
-        reject(@"NO_CLIENT_TOKEN", @"You must provide a client token", nil);
-        return;
-    }
-    
-    BTAPIClient *apiClient = [[BTAPIClient alloc] initWithAuthorization:clientToken];
-    
-    self.dataCollector = [[BTDataCollector alloc] initWithAPIClient:apiClient];
-    [self.dataCollector collectCardFraudData:^(NSString * _Nonnull deviceDataCollector) {
-    // Save deviceData
-   
-    }];
-    
-    BTPayPalDriver *driver = [[BTPayPalDriver alloc] initWithAPIClient:apiClient];
-    driver.viewControllerPresentingDelegate = self;
-    driver.appSwitchDelegate = self; // Optional
-    
-    NSString* amount = options[@"amount"];
-    
-    BTPayPalRequest *payPalRequest = [[BTPayPalRequest alloc] initWithAmount:amount];  //Here you need to enter the amount
-    payPalRequest.currencyCode = options[@"currencyCode"];
-    
-    
-    // One time payment if an amount is present
-  
-    [driver requestOneTimePayment:payPalRequest completion:^(BTPayPalAccountNonce * _Nullable payPalAccount, NSError * _Nullable error) {
-        
-        if (payPalAccount != nil) {
-            
-            [[self class] resolveBTPayment:payPalAccount resolver:resolve];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BTAPIClient* braintreeClient = [[BTAPIClient alloc] initWithAuthorization:clientToken];
+        if (braintreeClient == nil) {
+            NSError *error = [NSError errorWithDomain:@"RNPayPal" code:1 userInfo:nil];
+            reject(@"braintree_sdk_setup_failed", @"Could not initialize Braintree SDK", error);
+            return;
         }
-        else{
-            reject(error.localizedDescription, error.localizedDescription, error);
+
+        if (options[@"billingAgreementDescription"] == nil) {
+            NSError *error = [NSError errorWithDomain:@"RNPayPal" code:1 userInfo:nil];
+            reject(@"braintree_sdk_setup_failed", @"billingAgreementDescription prop is required", error);
+            return;
         }
-    }];
-    
+
+        BTPayPalDriver *payPalDriver = [[BTPayPalDriver alloc] initWithAPIClient:braintreeClient];
+        payPalDriver.viewControllerPresentingDelegate = self;
+        payPalDriver.appSwitchDelegate = self;
+
+        BTPayPalRequest *request = [[BTPayPalRequest alloc] initWithAmount:options[@"billingAgreementDescription"]];
+        NSString* currency = options[@"currency"];
+        if (currency) request.currencyCode = currency;
+        NSString* localeCode = options[@"localeCode"];
+        if (localeCode) request.localeCode = localeCode;
+
+        [payPalDriver requestBillingAgreement:request completion:^(BTPayPalAccountNonce * _Nullable tokenizedPayPalAccount, NSError * _Nullable error) {
+            if (tokenizedPayPalAccount) {
+                NSDictionary* result = @{
+                    @"nonce" : (tokenizedPayPalAccount.nonce ?: [NSNull null]),
+                    @"payerId" : (tokenizedPayPalAccount.payerId ?: [NSNull null]),
+                    @"email" : (tokenizedPayPalAccount.email ?: [NSNull null]),
+                    @"firstName" : (tokenizedPayPalAccount.firstName ?: [NSNull null]),
+                    @"lastName" : (tokenizedPayPalAccount.lastName ?: [NSNull null]),
+                    @"phone" : (tokenizedPayPalAccount.phone ?: [NSNull null]),
+                    @"billingAddress": @{
+                        @"recipientName" : (tokenizedPayPalAccount.billingAddress.recipientName ?: [NSNull null]),
+                        @"streetAddress" : (tokenizedPayPalAccount.billingAddress.streetAddress ?: [NSNull null]),
+                        @"extendedAddress" : (tokenizedPayPalAccount.billingAddress.extendedAddress ?: [NSNull null]),
+                        @"locality" : (tokenizedPayPalAccount.billingAddress.locality ?: [NSNull null]),
+                        @"countryCodeAlpha2" : (tokenizedPayPalAccount.billingAddress.countryCodeAlpha2 ?: [NSNull null]),
+                        @"postalCode" : (tokenizedPayPalAccount.billingAddress.postalCode ?: [NSNull null]),
+                        @"region" : (tokenizedPayPalAccount.billingAddress.region ?: [NSNull null]),
+                    },
+                    @"shippingAddress": @{
+                        @"recipientName" : (tokenizedPayPalAccount.shippingAddress.recipientName ?: [NSNull null]),
+                        @"streetAddress" : (tokenizedPayPalAccount.shippingAddress.streetAddress ?: [NSNull null]),
+                        @"extendedAddress" : (tokenizedPayPalAccount.shippingAddress.extendedAddress ?: [NSNull null]),
+                        @"locality" : (tokenizedPayPalAccount.shippingAddress.locality ?: [NSNull null]),
+                        @"countryCodeAlpha2" : (tokenizedPayPalAccount.shippingAddress.countryCodeAlpha2 ?: [NSNull null]),
+                        @"postalCode" : (tokenizedPayPalAccount.shippingAddress.postalCode ?: [NSNull null]),
+                        @"region" : (tokenizedPayPalAccount.shippingAddress.region ?: [NSNull null]),
+                    },
+                };
+
+                resolve(result);
+                return;
+            } else if (error) {
+                reject(@"request_billing_agreement_error", @"Error requesting billing agreement", error);
+                return;
+            } else {
+                NSError* e = [NSError errorWithDomain:@"RNPayPal" code:2 userInfo:nil];
+                reject(@"user_cancellation", @"User cancelled billing agreement request", e);
+            }
+        }];
+    });
 }
 
 
